@@ -34,6 +34,7 @@ import ghidrassistmcp.tools.CancelTaskTool;
 import ghidrassistmcp.tools.ClassTool;
 import ghidrassistmcp.tools.CommentsTool;
 import ghidrassistmcp.tools.CreateDataVarTool;
+import ghidrassistmcp.tools.GetAllCallEdgesTool;
 import ghidrassistmcp.tools.GetBasicBlocksTool;
 import ghidrassistmcp.tools.GetCodeTool;
 import ghidrassistmcp.tools.GetCurrentAddressTool;
@@ -43,6 +44,7 @@ import ghidrassistmcp.tools.GetFunctionInfoTool;
 import ghidrassistmcp.tools.GetFunctionStackLayoutTool;
 import ghidrassistmcp.tools.GetFunctionStatisticsTool;
 import ghidrassistmcp.tools.GetHexdumpTool;
+import ghidrassistmcp.tools.GetMemoryBlockCommentsTool;
 import ghidrassistmcp.tools.GetTaskStatusTool;
 import ghidrassistmcp.tools.ListDataTool;
 import ghidrassistmcp.tools.ListExportsTool;
@@ -59,7 +61,9 @@ import ghidrassistmcp.tools.RenameSymbolBatchTool;
 import ghidrassistmcp.tools.RenameSymbolTool;
 import ghidrassistmcp.tools.SearchBytesTool;
 import ghidrassistmcp.tools.SearchFunctionsByNameTool;
+import ghidrassistmcp.tools.SearchInstructionsTool;
 import ghidrassistmcp.tools.SearchStringsTool;
+import ghidrassistmcp.tools.SetMemoryBlockCommentTool;
 import ghidrassistmcp.tools.StructTool;
 import ghidrassistmcp.tools.TypesTool;
 import ghidrassistmcp.tools.VariablesTool;
@@ -141,6 +145,12 @@ public class GhidrAssistMCPBackend implements McpBackend {
         registerTool(new GetTaskStatusTool());
         registerTool(new CancelTaskTool());
         registerTool(new ListTasksTool());
+
+        // Ice Cracker custom tools (not in upstream GhidrAssistMCP)
+        registerTool(new GetAllCallEdgesTool());
+        registerTool(new SearchInstructionsTool());
+        registerTool(new GetMemoryBlockCommentsTool());
+        registerTool(new SetMemoryBlockCommentTool());
 
         Msg.info(this, "GhidrAssistMCP Backend initialized with " + tools.size() + " tools");
     }
@@ -285,7 +295,11 @@ public class GhidrAssistMCPBackend implements McpBackend {
             McpSchema.CallToolResult result = tool.execute(arguments, targetProgram, this);
 
             // Add active context information to help LLM understand which binary is in focus
-            result = addActiveContextToResult(result, targetProgram);
+            // Tools returning structured JSON (includeContext=false) skip the prefix
+            // to avoid corrupting parseable output.
+            if (tool.includeContext()) {
+                result = addActiveContextToResult(result, targetProgram);
+            }
 
             // Cache the result if tool is cacheable
             if (tool.isCacheable() && targetProgram != null) {
@@ -322,7 +336,9 @@ public class GhidrAssistMCPBackend implements McpBackend {
         McpTask task = taskManager.submitTask(toolName, arguments, () -> {
             try {
                 McpSchema.CallToolResult result = tool.execute(arguments, targetProgram, backend);
-                result = addActiveContextToResult(result, targetProgram);
+                if (tool.includeContext()) {
+                    result = addActiveContextToResult(result, targetProgram);
+                }
                 notifyToolResponse(toolName, result);
                 return result;
             } catch (Exception e) {
